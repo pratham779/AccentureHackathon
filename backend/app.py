@@ -1,11 +1,11 @@
 import os
 import logging
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List
 from pdfminer.high_level import extract_text
 import docx
-from fastapi.middleware.cors import CORSMiddleware
 from agents.jd_summarizer import summarize_job_description, process_cvs
-from typing import List
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +21,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Root endpoint to confirm the API is running
+@app.get("/")
+async def root():
+    return {"message": "API is running"}
 
 @app.post("/process-jd/")
 async def process_job_description(file: UploadFile):
