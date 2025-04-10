@@ -85,5 +85,5 @@ async def process_candidate_cvs(jd_id: int, files: List[UploadFile] = File(...))
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting FastAPI application...")
-    port = int(os.environ.get("PORT", 64354))  # Use Render's PORT env var
+    port = int(os.environ.get("PORT", 8000))  # Use Render's PORT env var
     uvicorn.run(app, host="0.0.0.0", port=port)
