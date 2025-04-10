@@ -24,6 +24,7 @@ app.add_middleware(
 
 # Root endpoint to confirm the API is running
 @app.get("/")
+@app.head("/")
 async def root():
     return {"message": "API is running"}
 
