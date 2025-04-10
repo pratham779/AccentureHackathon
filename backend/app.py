@@ -1,34 +1,22 @@
 import os
 import logging
-import subprocess
-from typing import List
-
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from pdfminer.high_level import extract_text
 import docx
-
+from fastapi.middleware.cors import CORSMiddleware
 from agents.jd_summarizer import summarize_job_description, process_cvs
+from typing import List
 
-# Ensure spaCy model is available
-import spacy
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
-    nlp = spacy.load("en_core_web_sm")
-
-# Logging setup
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI
 app = FastAPI()
 
-# CORS settings (allow all for now — adjust in prod)
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Temporary wildcard for debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,7 +30,7 @@ async def process_job_description(file: UploadFile):
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ]
-
+    
     if file.content_type not in supported_types:
         logger.warning(f"Unsupported file type: {file.content_type}")
         raise HTTPException(status_code=400, detail="Unsupported file format")
@@ -50,46 +38,52 @@ async def process_job_description(file: UploadFile):
     try:
         logger.info(f"Processing file: {file.filename} (type: {file.content_type})")
         if file.content_type == "text/plain":
-            text = (await file.read()).decode("utf-8").strip()
+            text = await file.read()
+            text = text.decode("utf-8").strip()
         elif file.content_type == "application/pdf":
             text = extract_text(file.file).strip()
-        elif file.content_type in ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+        elif file.content_type in [
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ]:
             doc = docx.Document(file.file)
-            text = "\n".join(para.text for para in doc.paragraphs).strip()
+            text = "\n".join([para.text for para in doc.paragraphs]).strip()
         else:
+            logger.error(f"Unexpected file type processed: {file.content_type}")
             raise HTTPException(status_code=400, detail="Unsupported file format")
     except Exception as e:
-        logger.error(f"Text extraction failed: {str(e)}", exc_info=True)
+        logger.error(f"Text extraction failed for {file.filename}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=400, detail="Failed to extract text from file")
 
     if not text:
-        logger.warning("File content is empty")
+        logger.warning(f"Empty content in file: {file.filename}")
         raise HTTPException(status_code=400, detail="File content is empty")
 
     try:
+        logger.info(f"Summarizing job description for file: {file.filename}")
         jd_data, jd_id = summarize_job_description(text)
-        logger.info(f"Processed JD ID: {jd_id}")
+        logger.info(f"Successfully processed JD ID: {jd_id}")
         return {"jd_data": jd_data, "jd_id": jd_id}
     except Exception as e:
-        logger.error(f"JD processing failed: {str(e)}", exc_info=True)
+        logger.error(f"Failed to process job description: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/process-cvs/{jd_id}")
 async def process_candidate_cvs(jd_id: int, files: List[UploadFile] = File(...)):
-    logger.info(f"Processing {len(files)} CV(s) for JD ID: {jd_id}")
+    logger.info(f"Starting CV processing for JD ID: {jd_id} with {len(files)} files")
     try:
         result = await process_cvs(jd_id, files)
+        logger.info(f"CV processing completed for JD ID: {jd_id}")
         return result
     except HTTPException as e:
-        logger.error(f"HTTP error: {str(e)}", exc_info=True)
+        logger.error(f"HTTP error during CV processing: {str(e)}", exc_info=True)
         raise
     except Exception as e:
-        logger.error(f"CV processing error: {str(e)}", exc_info=True)
+        logger.error(f"Unexpected error during CV processing: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# Entrypoint for manual run (e.g. local dev)
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting FastAPI application...")
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)
